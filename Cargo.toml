@@ -4,6 +4,10 @@ description = "enables using jupyter notebooks in mdbook"
 version = "0.1.0"
 edition = "2021"
 repository = "https://github.com/rojesh-shikhrakar/mdbook-jupyter"
+authors = ["Rojesh M Shikhrakar"]
+license = "MIT"
+keywords = ["mdbook", "markdown", "jupyter", "notebook", "ipynb"]
+readme = "README.md"
 
 [[bin]]
 name = "mdbook-jupyter"
