@@ -1,16 +1,26 @@
-# mdbook-jupyter [WIP]
+# mdbook-jupyter
 
-A preprocessor for [mdbook](https://github.com/rust-lang-nursery/mdBook) to add jupyter notebooks as chapters by converting them into markdown format.
+A [mdbook](https://github.com/rust-lang-nursery/mdBook) preprocessor that converts Jupyter notebooks (`.ipynb`) to markdown chapters.
 
 ## Installation
 
-Install the tool:
-
 ```bash
 cargo install mdbook-jupyter
-
 mdbook-jupyter install
 ```
 
-This add mdbook-jupyter preprocessor configuration to your `book.toml`
+The `install` command adds `[preprocessor.jupyter]` to your `book.toml`.
 
+## Usage
+
+Add `.ipynb` files to your book and reference them in `SUMMARY.md`:
+
+```Markdown
+- [My Notebook](path/to/notebook.ipynb)
+```
+
+Configure in `book.toml` under `[preprocessor.jupyter]`:
+```toml
+[preprocessor.jupyter]
+embed_images = true
+``
