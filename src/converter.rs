@@ -1,10 +1,26 @@
 use anyhow::Result;
 use base64::{Engine as _, engine::general_purpose::STANDARD};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::fs::{File, create_dir_all};
 use std::path::Path;
 use std::fs;
+
+/// Configuration options for notebook conversion
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConvertOptions {
+    /// If true, embed images as base64 in the markdown instead of saving to files
+    #[serde(default)]
+    pub embed_images: bool,
+}
+
+impl Default for ConvertOptions {
+    fn default() -> Self {
+        ConvertOptions {
+            embed_images: false,
+        }
+    }
+}
 
 #[derive(Debug, Deserialize)]
 pub struct Notebook {
@@ -85,13 +101,21 @@ pub enum Output {
 
 /// Converts a Jupyter notebook to Markdown format
 pub fn convert_notebook_to_md(path: &Path, assets_out: &Path) -> Result<String> {
+    let options = ConvertOptions::default();
+    convert_notebook_to_md_with_options(path, assets_out, options)
+}
+
+/// Converts a Jupyter notebook to Markdown format with custom options
+pub fn convert_notebook_to_md_with_options(path: &Path, assets_out: &Path, options: ConvertOptions) -> Result<String> {
     let file = File::open(path)?;
     let notebook: Notebook = serde_json::from_reader(file)?;
 
-    // Ensure assets directory exists
-    if let Err(e) = create_dir_all(assets_out) {
-        // If we cannot create the assets directory, return an error
-        return Err(anyhow::anyhow!(e));
+    // Ensure assets directory exists (only needed if not embedding images)
+    if !options.embed_images {
+        if let Err(e) = create_dir_all(assets_out) {
+            // If we cannot create the assets directory, return an error
+            return Err(anyhow::anyhow!(e));
+        }
     }
 
     // Pre-reserve reasonable capacity to reduce reallocations
@@ -107,7 +131,7 @@ pub fn convert_notebook_to_md(path: &Path, assets_out: &Path) -> Result<String> 
     let mut asset_counter: u32 = 0;
 
     for cell in notebook.cells.into_iter() {
-        process_cell(&mut md, cell, assets_out, &mut asset_counter)?;
+        process_cell(&mut md, cell, assets_out, &mut asset_counter, &options)?;
     }
 
     Ok(md)
@@ -163,7 +187,7 @@ fn value_to_text(value: &Value) -> Option<String> {
     }
 }
 
-fn process_cell(md: &mut String, cell: Cell, assets_out: &Path, counter: &mut u32) -> Result<(), anyhow::Error> {
+fn process_cell(md: &mut String, cell: Cell, assets_out: &Path, counter: &mut u32, options: &ConvertOptions) -> Result<(), anyhow::Error> {
     match cell {
         Cell::Markdown { source, .. } => {
             md.push_str(&source.into_string());
@@ -175,7 +199,7 @@ fn process_cell(md: &mut String, cell: Cell, assets_out: &Path, counter: &mut u3
             md.push_str("\n```\n\n");
 
             for output in outputs.into_iter() {
-                process_output(md, output, assets_out, counter)?;
+                process_output(md, output, assets_out, counter, options)?;
             }
         }
         Cell::Raw { source, .. } => {
@@ -187,7 +211,7 @@ fn process_cell(md: &mut String, cell: Cell, assets_out: &Path, counter: &mut u3
     Ok(())
 }
 
-fn process_output(md: &mut String, output: Output, assets_out: &Path, counter: &mut u32) -> Result<(), anyhow::Error> {
+fn process_output(md: &mut String, output: Output, assets_out: &Path, counter: &mut u32, options: &ConvertOptions) -> Result<(), anyhow::Error> {
     match output {
         Output::Stream { text, .. } => {
             md.push_str("```\n");
@@ -197,40 +221,56 @@ fn process_output(md: &mut String, output: Output, assets_out: &Path, counter: &
         Output::DisplayData { data, .. } | Output::ExecuteResult { data, .. } => {
             // Handle common image types first; values may be strings or arrays of strings
             if let Some(img_b64) = data.get("image/png").and_then(|v| value_to_text(v)) {
-                // decode and write to file
-                let decoded = STANDARD.decode(&img_b64)?;
-                let filename = format!("output_{:03}.png", *counter);
-                let out_path = assets_out.join(&filename);
-                fs::write(&out_path, &decoded)?;
-                *counter += 1;
-
-                if let Some(dirname) = assets_out.file_name().map(|s| s.to_string_lossy()) {
-                    md.push_str(&format!("![output image]({}/{})\n\n", dirname, filename));
+                if options.embed_images {
+                    // Embed image as base64 data URL
+                    md.push_str(&format!("![output image](data:image/png;base64,{})\n\n", img_b64));
                 } else {
-                    md.push_str(&format!("![output image]({})\n\n", filename));
+                    // decode and write to file
+                    let decoded = STANDARD.decode(&img_b64)?;
+                    let filename = format!("output_{:03}.png", *counter);
+                    let out_path = assets_out.join(&filename);
+                    fs::write(&out_path, &decoded)?;
+                    *counter += 1;
+
+                    if let Some(dirname) = assets_out.file_name().map(|s| s.to_string_lossy()) {
+                        md.push_str(&format!("![output image]({}/{})\n\n", dirname, filename));
+                    } else {
+                        md.push_str(&format!("![output image]({})\n\n", filename));
+                    }
                 }
             } else if let Some(img_b64) = data.get("image/jpeg").and_then(|v| value_to_text(v)) {
-                let decoded = STANDARD.decode(&img_b64)?;
-                let filename = format!("output_{:03}.jpg", *counter);
-                let out_path = assets_out.join(&filename);
-                fs::write(&out_path, &decoded)?;
-                *counter += 1;
-
-                if let Some(dirname) = assets_out.file_name().map(|s| s.to_string_lossy()) {
-                    md.push_str(&format!("![output image]({}/{})\n\n", dirname, filename));
+                if options.embed_images {
+                    // Embed image as base64 data URL
+                    md.push_str(&format!("![output image](data:image/jpeg;base64,{})\n\n", img_b64));
                 } else {
-                    md.push_str(&format!("![output image]({})\n\n", filename));
+                    let decoded = STANDARD.decode(&img_b64)?;
+                    let filename = format!("output_{:03}.jpg", *counter);
+                    let out_path = assets_out.join(&filename);
+                    fs::write(&out_path, &decoded)?;
+                    *counter += 1;
+
+                    if let Some(dirname) = assets_out.file_name().map(|s| s.to_string_lossy()) {
+                        md.push_str(&format!("![output image]({}/{})\n\n", dirname, filename));
+                    } else {
+                        md.push_str(&format!("![output image]({})\n\n", filename));
+                    }
                 }
             } else if let Some(svg) = data.get("image/svg+xml").and_then(|v| value_to_text(v)) {
-                let filename = format!("output_{:03}.svg", *counter);
-                let out_path = assets_out.join(&filename);
-                fs::write(&out_path, svg.as_bytes())?;
-                *counter += 1;
-
-                if let Some(dirname) = assets_out.file_name().map(|s| s.to_string_lossy()) {
-                    md.push_str(&format!("![output svg]({}/{})\n\n", dirname, filename));
+                if options.embed_images {
+                    // Embed SVG as base64 data URL
+                    let svg_b64 = STANDARD.encode(&svg);
+                    md.push_str(&format!("![output svg](data:image/svg+xml;base64,{})\n\n", svg_b64));
                 } else {
-                    md.push_str(&format!("![output svg]({})\n\n", filename));
+                    let filename = format!("output_{:03}.svg", *counter);
+                    let out_path = assets_out.join(&filename);
+                    fs::write(&out_path, svg.as_bytes())?;
+                    *counter += 1;
+
+                    if let Some(dirname) = assets_out.file_name().map(|s| s.to_string_lossy()) {
+                        md.push_str(&format!("![output svg]({}/{})\n\n", dirname, filename));
+                    } else {
+                        md.push_str(&format!("![output svg]({})\n\n", filename));
+                    }
                 }
             } else if let Some(mdtext) = data.get("text/markdown").and_then(|v| value_to_text(v)) {
                 md.push_str(&mdtext);
