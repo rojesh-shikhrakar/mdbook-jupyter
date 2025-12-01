@@ -4,7 +4,7 @@ pub mod cli;
 use mdbook::book::{Book, BookItem};
 use mdbook::errors::Error;
 use mdbook::preprocess::{Preprocessor, PreprocessorContext};
-use crate::converter::convert_notebook_to_md;
+use crate::converter::{convert_notebook_to_md_with_options, ConvertOptions};
 
 /// Jupyter preprocessor for mdbook
 pub struct JupyterPreprocessor;
@@ -33,12 +33,22 @@ impl Preprocessor for JupyterPreprocessor {
             .join(&ctx.config.build.build_dir)
             .join("html/assets");
 
+        // Extract configuration from the preprocessor config
+        let options = ctx.config.get_preprocessor(self.name())
+            .and_then(|cfg| {
+                // Try to extract embed_images boolean from config table
+                cfg.get("embed_images")
+                    .and_then(|v| v.as_bool())
+                    .map(|embed_images| ConvertOptions { embed_images })
+            })
+            .unwrap_or_default();
+
         book.for_each_mut(|item| {
             if let BookItem::Chapter(chapter) = item {
                 if let Some(path) = &chapter.path {
                     if path.extension().map_or(false, |ext| ext == "ipynb") {
                         let full_path = ctx.root.join(&ctx.config.book.src).join(path);
-                        match convert_notebook_to_md(&full_path, &assets_dir) {
+                        match convert_notebook_to_md_with_options(&full_path, &assets_dir, options.clone()) {
                             Ok(content) => chapter.content = content,
                             Err(e) => {
                                 // Log the error to stderr so the mdbook user sees the underlying cause
