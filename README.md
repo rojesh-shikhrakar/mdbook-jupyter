@@ -2,6 +2,11 @@
 
 A [mdbook](https://github.com/rust-lang-nursery/mdBook) preprocessor that converts Jupyter notebooks (`.ipynb`) to markdown chapters.
 
+[![Latest version](https://img.shields.io/crates/v/mdbook-jupyter)](https://crates.io/crates/mdbook-jupyter)
+![Deps.rs Crate Dependencies (latest)](https://img.shields.io/deps-rs/mdbook-jupyter/latest)
+[![Documentation](https://docs.rs/mdbook-jupyter/badge.svg)](https://docs.rs/mdbook-jupyter)
+![GitHub License](https://img.shields.io/github/license/rojesh-shikhrakar/mdbook-jupyter)
+
 ## Installation
 
 ```bash
